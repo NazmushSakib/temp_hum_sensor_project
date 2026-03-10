@@ -1,4 +1,4 @@
-// For Oled Display
+// For Oled Display with refined alert msg
 
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
@@ -189,50 +189,7 @@ void loop() {
     lastPageSwitch = millis();
   }
 
-  /*
-  display.clearDisplay();
-  if (showPage1) {
-    // Page 1: Temp & Hum big, Date & Time small
-    display.setTextSize(2);
-    display.setCursor(0, 0);
-    display.print("T:");
-    display.print(temp, 1);
-    display.print((char)247); // degree symbol
-    display.println("C");
-
-    display.setCursor(0, 25);
-    display.print("H:");
-    display.print(hum, 0);
-    display.println("%");
-
-    display.setTextSize(1);
-    display.setCursor(0, 50);
-    display.print(dateStr);
-    display.print(" ");
-    display.print(timeStr.substring(0, 5));
-  } else {
-    // Page 2: WiFi + Site
-    display.setTextSize(1);
-    display.setCursor(0, 0);
-    display.print("WiFi: ");
-    display.print(WiFi.SSID());
-
-    display.setCursor(0, 15);
-    display.print("IP: ");
-    display.print(WiFi.localIP());
-
-    display.setCursor(0, 30);
-    display.print("RSSI: ");
-    display.print(WiFi.RSSI());
-    display.println("dBm");
-
-    display.setCursor(0, 50);
-    display.print("Site: ");
-    display.print(siteName);
-  }
-  display.display();
-  */
-
+  
   display.clearDisplay();
   if (showPage1) {
     // === Page 1: Temp & Hum with icons ===
@@ -280,21 +237,60 @@ void loop() {
   }
   display.display();
 
-  // === ALERT LOGIC ===
- 
-  bool tempAlert = (temp > 29 || temp < 15);   // previous  (temp > 29 || temp < 15);
-  bool humAlert = (hum > 86 || hum < 38);      // previous (hum > 80 || hum < 40);
-  inAlertMode = tempAlert || humAlert;
 
-  unsigned long now = millis();
-  unsigned long interval = inAlertMode ? alertInterval : normalInterval;
+ // === ALERT LOGIC ===
 
-  if (now - lastMessageTime >= interval || lastMessageTime == 0) {
-    String msg = "🌡 Temp: " + String(temp, 1) + "°C\n💧 Hum: " + String(hum, 1) + "%\n📅 " + dateStr + " 🕒 " + timeStr + "\n📍 Site: " + String(siteName);
-    if (inAlertMode) msg = "🚨 ALERT!\n" + msg;
-    sendTelegramMessage(msg);
-    lastMessageTime = now;
+bool tempHigh = temp > 29;
+bool tempLow  = temp < 15;
+
+bool humHigh  = hum > 86;
+bool humLow   = hum < 38;
+
+bool tempAlert = tempHigh || tempLow;
+bool humAlert  = humHigh || humLow;
+
+inAlertMode = tempAlert || humAlert;
+
+// Build reason string
+String reason = "";
+
+if (tempHigh) {
+  if (reason != "") reason += " and ";
+  reason += "Temperature exceeds upper limit";
+}
+
+if (tempLow) {
+  if (reason != "") reason += " and ";
+  reason += "Temperature below lower limit";
+}
+
+if (humHigh) {
+  if (reason != "") reason += " and ";
+  reason += "Humidity exceeds upper limit";
+}
+
+if (humLow) {
+  if (reason != "") reason += " and ";
+  reason += "Humidity below lower limit";
+}
+
+unsigned long now = millis();
+unsigned long interval = inAlertMode ? alertInterval : normalInterval;
+
+if (now - lastMessageTime >= interval || lastMessageTime == 0) {
+
+  String msg = "🌡 Temp: " + String(temp, 1) + "°C\n";
+  msg += "💧 Hum: " + String(hum, 1) + "%\n";
+  msg += "📅 " + dateStr + " 🕒 " + timeStr + "\n";
+  msg += "📍 Site: " + String(siteName);
+
+  if (inAlertMode) {
+    msg = "🚨 ALERT!\nCause: " + reason + "\n\n" + msg;
   }
+
+  sendTelegramMessage(msg);
+  lastMessageTime = now;
+}
 
   delay(500);
 }
