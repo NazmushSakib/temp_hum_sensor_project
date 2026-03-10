@@ -1,71 +1,155 @@
-// v1 For LCD Display
+// For Oled Display
 
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
 #include <ESP8266HTTPClient.h>
 #include <DHT.h>
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SH110X.h>
 #include <WiFiUdp.h>
 #include <NTPClient.h>
 #include <ESP8266WebServer.h>
 
-const char* ssid = "ANS-2";
+
+// const char* ssid = "ANS-2";  //Mogbazar
+// const char* ssid = "TP-ANS-2.4";  //Ramna
+const char* ssid = "ANS CTG 2.4G";  //CTG
+// const char* ssid = "ANS KHL 2.4G"; //khulna
 const char* password = "Password_01";
 
 const char* botToken = "8029735356:AAFkjWeoNbfEsAS5dc8Xz-fdVcIOnsGLDDw";
 const char* chatId = "-1002757593763";
 
-// I2C LCD SDA D2 (GPIO4) I2C Data Line
-//I2C LCD SCL D1 (GPIO5) I2C Clock Line
+// const char* siteName = "Moghbazar ANS-1";
+// const char* siteName = "KHL-Khalishpur";
+// const char* siteName = "KHL-Metro";
+const char* siteName = "CTG-Nandankanon";
+// const char* siteName = "DHK-Ramna";
 
-#define DHTPIN D3
-// #define DHTTYPE DHT11
+
+/*
+| Component      | NodeMCU Pin | GPIO Number | Notes         |
+| -------------- | ----------- | ----------- | ------------- |
+| **DHT22 Data** | **D4**      | **GPIO2**   | safer than D3 |
+| **OLED SDA**   | **D2**      | **GPIO4**   | I²C data      |
+| **OLED SCL**   | **D1**      | **GPIO5**   | I²C clock     |
+Site name
+wifi name
+wifi password
+*/
+
+#define DHTPIN 2         // D4 = GPIO2
+// #define DHTPIN 15         // D8 = GPIO15
 #define DHTTYPE DHT22
 DHT dht(DHTPIN, DHTTYPE);
 
-LiquidCrystal_I2C lcd(0x27, 20, 4);
+// OLED
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// 16x16 thermometer icon
+const unsigned char PROGMEM iconTemp[] = {
+  0b00000110, 0b00000000,
+  0b00000110, 0b00000000,
+  0b00000110, 0b00000000,
+  0b00000110, 0b00000000,
+  0b00000110, 0b00000000,
+  0b00000110, 0b00000000,
+  0b00001111, 0b00000000,
+  0b00001111, 0b00000000,
+  0b00001111, 0b00000000,
+  0b00001111, 0b00000000,
+  0b00001111, 0b00000000,
+  0b00001111, 0b00000000,
+  0b00001111, 0b00000000,
+  0b00001111, 0b00000000,
+  0b00000110, 0b00000000,
+  0b00000110, 0b00000000
+};
+
+// 16x16 humidity droplet
+const unsigned char PROGMEM iconHum[] = {
+  0b00000100, 0b00000000,
+  0b00001110, 0b00000000,
+  0b00011111, 0b00000000,
+  0b00111111, 0b10000000,
+  0b01111111, 0b11000000,
+  0b11111111, 0b11100000,
+  0b11111111, 0b11100000,
+  0b11111111, 0b11100000,
+  0b11111111, 0b11100000,
+  0b01111111, 0b11000000,
+  0b00111111, 0b10000000,
+  0b00011111, 0b00000000,
+  0b00001110, 0b00000000,
+  0b00000100, 0b00000000,
+  0b00000000, 0b00000000,
+  0b00000000, 0b00000000
+};
+
+// 16x16 WiFi icon
+const unsigned char PROGMEM iconWiFi[] = {
+  0b00000000, 0b00000000,
+  0b00011111, 0b11100000,
+  0b00111111, 0b11110000,
+  0b01111000, 0b01111000,
+  0b11100000, 0b00011100,
+  0b11000011, 0b10001100,
+  0b00000111, 0b11000000,
+  0b00001100, 0b01100000,
+  0b00011000, 0b00110000,
+  0b00010000, 0b00010000,
+  0b00000000, 0b00000000,
+  0b00000000, 0b00000000,
+  0b00000000, 0b00000000,
+  0b00000000, 0b00000000,
+  0b00000000, 0b00000000,
+  0b00000000, 0b00000000
+};
+
 
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", 6 * 3600, 60000);
 
 ESP8266WebServer server(80);
+
 unsigned long lastMessageTime = 0;
-const unsigned long normalInterval = 3600000; // 1 hour  3600000
-const unsigned long alertInterval = 120000;   // 2 minutes   120000
+const unsigned long normalInterval = 3600000;  // 1 hour
+const unsigned long alertInterval = 120000;    // 2 minutes
 bool inAlertMode = false;
 bool paused = false;
 
-const char* siteName = "Moghbazar ANS-2";
-// const char* siteName = "Ramna";
+
+// for display page switching
+unsigned long lastPageSwitch = 0;
+bool showPage1 = true;
 
 void setup() {
-  Serial.begin(9600);   //115200
+  Serial.begin(115200);
   dht.begin();
-  lcd.init();
-  lcd.backlight();
 
-  lcd.setCursor(0, 0);
-  lcd.print("Connecting WiFi");
+  // OLED init
+  if (!display.begin(0x3C, true)) {  // 0x3C is default I2C address
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;)
+      ;
+  }
+  display.clearDisplay();
+  display.setTextColor(SH110X_WHITE);
+
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-
-  lcd.clear();
-  lcd.print("WiFi Connected!");
-  delay(1000);
-  lcd.clear();
-  lcd.print("IP:");  
-  lcd.print(WiFi.localIP());
-  delay(1000);
-  lcd.clear();
-
-  
+  Serial.println("WiFi Connected!");
 
   timeClient.begin();
 
+  // Webserver endpoints
   server.on("/wake", HTTP_GET, []() {
     paused = false;
     server.send(200, "text/plain", "Resumed sending.");
@@ -83,6 +167,7 @@ void setup() {
   server.begin();
 }
 
+
 void loop() {
   server.handleClient();
   if (paused) return;
@@ -90,42 +175,115 @@ void loop() {
   float temp = dht.readTemperature();
   float hum = dht.readHumidity();
   if (isnan(temp) || isnan(hum)) {
-    // Serial.println("DHT11 read failed");
     Serial.println("DHT22 read failed");
-    lcd.setCursor(0, 0);
-    lcd.print("Sensor Error    ");
     return;
   }
-  // ===Testing===
-  Serial.println(temp);
-  Serial.println(hum);
-// ===Testing===
+
   timeClient.update();
   String timeStr = timeClient.getFormattedTime();
   String dateStr = getDateString();
 
-  lcd.setCursor(0, 0);
-  lcd.print(" T:");
-  lcd.print(temp, 1);
-  lcd.print((char)223);
-  lcd.print("C H:");
-  lcd.print(hum, 0);
-  lcd.print("%");
+  // ==== PAGE SWITCHING ====
+  if (millis() - lastPageSwitch > (showPage1 ? 4000 : 2000)) {
+    showPage1 = !showPage1;
+    lastPageSwitch = millis();
+  }
 
-  lcd.setCursor(0, 1);
-  lcd.print(dateStr + " " + timeStr.substring(0, 5));
+  /*
+  display.clearDisplay();
+  if (showPage1) {
+    // Page 1: Temp & Hum big, Date & Time small
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    display.print("T:");
+    display.print(temp, 1);
+    display.print((char)247); // degree symbol
+    display.println("C");
 
-  lcd.setCursor(0, 2);
-  lcd.print("WiFi:OK ");
-  lcd.print(WiFi.RSSI());
-  lcd.print("dBm");
+    display.setCursor(0, 25);
+    display.print("H:");
+    display.print(hum, 0);
+    display.println("%");
 
-  lcd.setCursor(0, 3);
-  lcd.print("Site:");
-  lcd.print(siteName);
+    display.setTextSize(1);
+    display.setCursor(0, 50);
+    display.print(dateStr);
+    display.print(" ");
+    display.print(timeStr.substring(0, 5));
+  } else {
+    // Page 2: WiFi + Site
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+    display.print("WiFi: ");
+    display.print(WiFi.SSID());
 
-  bool tempAlert = (temp > 29 || temp < 15);
-  bool humAlert = (hum > 80 || hum < 43);
+    display.setCursor(0, 15);
+    display.print("IP: ");
+    display.print(WiFi.localIP());
+
+    display.setCursor(0, 30);
+    display.print("RSSI: ");
+    display.print(WiFi.RSSI());
+    display.println("dBm");
+
+    display.setCursor(0, 50);
+    display.print("Site: ");
+    display.print(siteName);
+  }
+  display.display();
+  */
+
+  display.clearDisplay();
+  if (showPage1) {
+    // === Page 1: Temp & Hum with icons ===
+    display.drawBitmap(0, 0, iconTemp, 16, 16, SH110X_WHITE);
+    display.setTextSize(2);
+    display.setCursor(20, 0);
+    display.print("T:");
+    display.print(temp, 1);
+    display.print((char)247);  // degree symbol
+    display.print("C");
+
+    display.drawBitmap(0, 25, iconHum, 16, 16, SH110X_WHITE);
+    display.setTextSize(2);
+    display.setCursor(20, 25);
+    display.print("H:");
+    display.print(hum, 0);
+    display.print("%");
+
+    display.setTextSize(1);
+    display.setCursor(0, 50);
+    display.print(dateStr);
+    display.print(" ");
+    display.print(timeStr.substring(0, 5));
+
+  } else {
+    // === Page 2: WiFi + Site with icons ===
+    display.drawBitmap(0, 0, iconWiFi, 16, 16, SH110X_WHITE);
+    display.setTextSize(1);
+    display.setCursor(20, 0);
+    display.print("WiFi: ");
+    display.print(WiFi.SSID());
+
+    display.setCursor(20, 15);
+    display.print("IP: ");
+    display.print(WiFi.localIP());
+
+    display.setCursor(20, 30);
+    display.print("RSSI: ");
+    display.print(WiFi.RSSI());
+    display.println("dBm");
+
+    display.setCursor(0, 50);
+    display.print("Site: ");
+    display.print(siteName);
+  }
+  display.display();
+
+  // === ALERT LOGIC ===
+ 
+  bool tempAlert = (temp > 29 || temp < 15);   // previous  (temp > 29 || temp < 15);
+  bool humAlert = (hum > 86 || hum < 38);      // previous (hum > 80 || hum < 40);
   inAlertMode = tempAlert || humAlert;
 
   unsigned long now = millis();
@@ -138,28 +296,23 @@ void loop() {
     lastMessageTime = now;
   }
 
-  delay(5000);
+  delay(500);
 }
+
+
 
 void sendTelegramMessage(String message) {
   if (WiFi.status() == WL_CONNECTED) {
     WiFiClientSecure client;
     client.setInsecure();
-
     HTTPClient http;
     String url = "https://api.telegram.org/bot" + String(botToken) + "/sendMessage?chat_id=" + String(chatId) + "&text=" + urlencode(message);
     if (http.begin(client, url)) {
       int httpCode = http.GET();
       Serial.print("Telegram status: ");
       Serial.println(httpCode);
-      if (httpCode > 0) Serial.println(http.getString());
-      else Serial.println("Telegram send failed.");
       http.end();
-    } else {
-      Serial.println("HTTP begin failed.");
     }
-  } else {
-    Serial.println("WiFi not connected.");
   }
 }
 
