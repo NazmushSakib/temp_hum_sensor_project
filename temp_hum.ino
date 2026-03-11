@@ -241,10 +241,10 @@ void loop() {
  // === ALERT LOGIC ===
 
 bool tempHigh = temp > 29;
-bool tempLow  = temp < 15;
+bool tempLow  = temp < 17;
 
-bool humHigh  = hum > 86;
-bool humLow   = hum < 38;
+bool humHigh  = hum > 85;
+bool humLow   = hum < 39;
 
 bool tempAlert = tempHigh || tempLow;
 bool humAlert  = humHigh || humLow;
